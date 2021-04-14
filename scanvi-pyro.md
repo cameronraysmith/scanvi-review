@@ -370,54 +370,54 @@ dataloader, num_genes, l_mean, l_scale, anndata = get_data(dataset=args.dataset,
 ## Define and train model
 
 ```python tags=[]
-    # Instantiate instance of model/guide and various neural networks
-    scanvi = SCANVI(num_genes=num_genes, num_labels=4, l_loc=l_mean, l_scale=l_scale,
+# Instantiate instance of model/guide and various neural networks
+scanvi = SCANVI(num_genes=num_genes, num_labels=4, l_loc=l_mean, l_scale=l_scale,
                     scale_factor=1.0 / (args.batch_size * num_genes))
 ```
 
 ```python tags=[]
-    if args.cuda:
-        scanvi.cuda()
+if args.cuda:
+    scanvi.cuda()
 ```
 
 ```python tags=[]
-    # Setup an optimizer (Adam) and learning rate scheduler.
-    # By default we start with a moderately high learning rate (0.005)
-    # and reduce by a factor of 5 after 20 epochs.
-    scheduler = MultiStepLR({'optimizer': Adam,
-                             'optim_args': {'lr': args.learning_rate},
-                             'milestones': [20],
-                             'gamma': 0.2})
+# Setup an optimizer (Adam) and learning rate scheduler.
+# By default we start with a moderately high learning rate (0.005)
+# and reduce by a factor of 5 after 20 epochs.
+scheduler = MultiStepLR({'optimizer': Adam,
+                         'optim_args': {'lr': args.learning_rate},
+                         'milestones': [20],
+                         'gamma': 0.2})
 ```
 
 ```python tags=[]
-    # Tell Pyro to enumerate out y when y is unobserved
-    guide = config_enumerate(scanvi.guide, "parallel", expand=True)
+# Tell Pyro to enumerate out y when y is unobserved
+guide = config_enumerate(scanvi.guide, "parallel", expand=True)
 ```
 
 ```python tags=[]
-    # Setup a variational objective for gradient-based learning.
-    # Note we use TraceEnum_ELBO in order to leverage Pyro's machinery
-    # for automatic enumeration of the discrete latent variable y.
-    elbo = TraceEnum_ELBO(strict_enumeration_warning=False)
-    svi = SVI(scanvi.model, guide, scheduler, elbo)
+# Setup a variational objective for gradient-based learning.
+# Note we use TraceEnum_ELBO in order to leverage Pyro's machinery
+# for automatic enumeration of the discrete latent variable y.
+elbo = TraceEnum_ELBO(strict_enumeration_warning=False)
+svi = SVI(scanvi.model, guide, scheduler, elbo)
 ```
 
 ```python tags=[]
-    # Training loop
-    for epoch in range(args.num_epochs):
-        losses = []
+# Training loop
+for epoch in range(args.num_epochs):
+    losses = []
 
-        for x, y in dataloader:
-            if y is not None:
-                y = y.type_as(x)
-            loss = svi.step(x, y)
-            losses.append(loss)
+    for x, y in dataloader:
+        if y is not None:
+            y = y.type_as(x)
+        loss = svi.step(x, y)
+        losses.append(loss)
 
-        # Tell the scheduler we've done one epoch.
-        scheduler.step()
+    # Tell the scheduler we've done one epoch.
+    scheduler.step()
 
-        print("[Epoch %04d]  Loss: %.5f" % (epoch, np.mean(losses)))
+    print("[Epoch %04d]  Loss: %.5f" % (epoch, np.mean(losses)))
 ```
 
 ```python tags=[]
@@ -426,57 +426,57 @@ scanvi.eval()
 ```
 
 ```python tags=[]
-    # Now that we're done training we'll inspect the latent representations we've learned
-    if args.plot and args.dataset == 'pbmc':
-        import scanpy as sc
+# Now that we're done training we'll inspect the latent representations we've learned
+# if args.plot and args.dataset == 'pbmc':
+import scanpy as sc
 
-        # Compute latent representation (z2_loc) for each cell in the dataset
-        latent_rep = scanvi.z2l_encoder(dataloader.data_x)[0]
+# Compute latent representation (z2_loc) for each cell in the dataset
+latent_rep = scanvi.z2l_encoder(dataloader.data_x)[0]
 
-        # Compute inferred cell type probabilities for each cell
-        y_logits = scanvi.classifier(latent_rep)
-        y_probs = softmax(y_logits, dim=-1).data.cpu().numpy()
+# Compute inferred cell type probabilities for each cell
+y_logits = scanvi.classifier(latent_rep)
+y_probs = softmax(y_logits, dim=-1).data.cpu().numpy()
 
-        # Use scanpy to compute 2-dimensional UMAP coordinates using our
-        # learned 10-dimensional latent representation z2
-        anndata.obsm["X_scANVI"] = latent_rep.data.cpu().numpy()
-        sc.pp.neighbors(anndata, use_rep="X_scANVI")
-        sc.tl.umap(anndata)
-        umap1, umap2 = anndata.obsm['X_umap'][:, 0], anndata.obsm['X_umap'][:, 1]
+# Use scanpy to compute 2-dimensional UMAP coordinates using our
+# learned 10-dimensional latent representation z2
+anndata.obsm["X_scANVI"] = latent_rep.data.cpu().numpy()
+sc.pp.neighbors(anndata, use_rep="X_scANVI")
+sc.tl.umap(anndata)
+umap1, umap2 = anndata.obsm['X_umap'][:, 0], anndata.obsm['X_umap'][:, 1]
 
-        # Construct plots; all plots are scatterplots depicting the two-dimensional UMAP embedding
-        # and only differ in how points are colored
+# Construct plots; all plots are scatterplots depicting the two-dimensional UMAP embedding
+# and only differ in how points are colored
 
-        # The topmost plot depicts the 200 hand-curated seed labels in our dataset
-        fig, axes = plt.subplots(3, 2)
-        seed_marker_sizes = anndata.obs['seed_marker_sizes']
-        axes[0, 0].scatter(umap1, umap2, s=seed_marker_sizes, c=anndata.obs['seed_colors'], marker='.', alpha=0.7)
-        axes[0, 0].set_title('Hand-Curated Seed Labels')
-        patch1 = Patch(color='lightcoral', label='CD8-Naive')
-        patch2 = Patch(color='limegreen', label='CD4-Naive')
-        patch3 = Patch(color='deepskyblue', label='CD4-Memory')
-        patch4 = Patch(color='mediumorchid', label='CD4-Regulatory')
-        axes[0, 1].legend(loc='center left', handles=[patch1, patch2, patch3, patch4])
-        axes[0, 1].get_xaxis().set_visible(False)
-        axes[0, 1].get_yaxis().set_visible(False)
-        axes[0, 1].set_frame_on(False)
+# The topmost plot depicts the 200 hand-curated seed labels in our dataset
+fig, axes = plt.subplots(3, 2)
+seed_marker_sizes = anndata.obs['seed_marker_sizes']
+axes[0, 0].scatter(umap1, umap2, s=seed_marker_sizes, c=anndata.obs['seed_colors'], marker='.', alpha=0.7)
+axes[0, 0].set_title('Hand-Curated Seed Labels')
+patch1 = Patch(color='lightcoral', label='CD8-Naive')
+patch2 = Patch(color='limegreen', label='CD4-Naive')
+patch3 = Patch(color='deepskyblue', label='CD4-Memory')
+patch4 = Patch(color='mediumorchid', label='CD4-Regulatory')
+axes[0, 1].legend(loc='center left', handles=[patch1, patch2, patch3, patch4])
+axes[0, 1].get_xaxis().set_visible(False)
+axes[0, 1].get_yaxis().set_visible(False)
+axes[0, 1].set_frame_on(False)
 
-        # The remaining plots depict the inferred cell type probability for each of the four cell types
-        s10 = axes[1, 0].scatter(umap1, umap2, s=1, c=y_probs[:, 0], marker='.', alpha=0.7)
-        axes[1, 0].set_title('Inferred CD8-Naive probability')
-        fig.colorbar(s10, ax=axes[1, 0])
-        s11 = axes[1, 1].scatter(umap1, umap2, s=1, c=y_probs[:, 1], marker='.', alpha=0.7)
-        axes[1, 1].set_title('Inferred CD4-Naive probability')
-        fig.colorbar(s11, ax=axes[1, 1])
-        s20 = axes[2, 0].scatter(umap1, umap2, s=1, c=y_probs[:, 2], marker='.', alpha=0.7)
-        axes[2, 0].set_title('Inferred CD4-Memory probability')
-        fig.colorbar(s20, ax=axes[2, 0])
-        s21 = axes[2, 1].scatter(umap1, umap2, s=1, c=y_probs[:, 3], marker='.', alpha=0.7)
-        axes[2, 1].set_title('Inferred CD4-Regulatory probability')
-        fig.colorbar(s21, ax=axes[2, 1])
+# The remaining plots depict the inferred cell type probability for each of the four cell types
+s10 = axes[1, 0].scatter(umap1, umap2, s=1, c=y_probs[:, 0], marker='.', alpha=0.7)
+axes[1, 0].set_title('Inferred CD8-Naive probability')
+fig.colorbar(s10, ax=axes[1, 0])
+s11 = axes[1, 1].scatter(umap1, umap2, s=1, c=y_probs[:, 1], marker='.', alpha=0.7)
+axes[1, 1].set_title('Inferred CD4-Naive probability')
+fig.colorbar(s11, ax=axes[1, 1])
+s20 = axes[2, 0].scatter(umap1, umap2, s=1, c=y_probs[:, 2], marker='.', alpha=0.7)
+axes[2, 0].set_title('Inferred CD4-Memory probability')
+fig.colorbar(s20, ax=axes[2, 0])
+s21 = axes[2, 1].scatter(umap1, umap2, s=1, c=y_probs[:, 3], marker='.', alpha=0.7)
+axes[2, 1].set_title('Inferred CD4-Regulatory probability')
+fig.colorbar(s21, ax=axes[2, 1])
 
-        fig.tight_layout()
-        plt.savefig('scanvi.pdf')
+fig.tight_layout()
+plt.savefig('scanvi.pdf')
 ```
 
 <!-- #region {"tags": []} -->
