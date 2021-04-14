@@ -23,7 +23,7 @@ jupyter:
     name: python
     nbconvert_exporter: python
     pygments_lexer: ipython3
-    version: 3.8.5
+    version: 3.9.2
   rise:
     scroll: true
     theme: black
@@ -79,7 +79,7 @@ from IPython.display import set_matplotlib_formats
 set_matplotlib_formats('svg') # use SVG backend to maintain vectorization
 plt.style.use('default') #reset default parameters
 # https://stackoverflow.com/a/3900167/446907
-plt.rcParams.update({'font.size': 16,
+plt.rcParams.update({'font.size': 12,
                      'font.family': ['sans-serif'],
                      'font.serif': ['Latin Modern Roman'] + plt.rcParams['font.serif'],
                      'font.sans-serif': ['Latin Modern Sans'] + plt.rcParams['font.sans-serif']})
