@@ -64,7 +64,7 @@ elif IN_COLAB and not stable:
 ```
 <!-- #endregion -->
 
-```python colab_type="code" id="BouKibj8gMHT" colab={}
+```python colab_type="code" id="BouKibj8gMHT" colab={} tags=[]
 import scanpy as sc
 import numpy as np
 from scipy import sparse
@@ -77,7 +77,7 @@ import matplotlib
 # %matplotlib inline
 ```
 
-```python
+```python tags=[]
 %run -i 'plotting.py'
 ```
 
@@ -95,7 +95,7 @@ For the purposes of this notebook, we will be labeling 4 cell types in a dataset
 
 <!-- #endregion -->
 
-```python colab_type="code" id="EfAF_WN0_HES" colab={"base_uri": "https://localhost:8080/", "height": 173} outputId="d57a8d15-fbab-48b4-a0a3-bd3404948a76"
+```python colab_type="code" id="EfAF_WN0_HES" colab={"base_uri": "https://localhost:8080/", "height": 173} outputId="d57a8d15-fbab-48b4-a0a3-bd3404948a76" tags=[]
 adata = scvi.data.purified_pbmc_dataset(subset_datasets=["regulatory_t", "naive_t", "memory_t", "naive_cytotoxic"])
 ```
 
@@ -112,7 +112,7 @@ We start by putting together a list of curated marker genes, from which we aim a
 
 <!-- #endregion -->
 
-```python colab_type="code" id="G58qhkFo1lhd" colab={}
+```python colab_type="code" id="G58qhkFo1lhd" colab={} tags=[]
 gene_subset = ["CD4", "FOXP3", "TNFRSF18", "IL2RA", "CTLA4", "CD44", "TCF7", "CD8B", "CCR7", "CD69", "PTPRC", "S100A4"]
 ```
 
@@ -120,7 +120,7 @@ gene_subset = ["CD4", "FOXP3", "TNFRSF18", "IL2RA", "CTLA4", "CD44", "TCF7", "CD
 We assign a score to every cell as a function of its cell type signature. In order to compute these scores, we need to normalize the data.
 <!-- #endregion -->
 
-```python colab_type="code" id="5h8r8lA0Afe9" colab={}
+```python colab_type="code" id="5h8r8lA0Afe9" colab={} tags=[]
 normalized = adata.copy()
 sc.pp.normalize_total(normalized, target_sum = 1e4) 
 sc.pp.log1p(normalized)
@@ -135,7 +135,7 @@ Two helper functions
 2. `get_cell_mask` identifies a subset of cells for which there is highest confidence in annotation as indicated by these scores.
 <!-- #endregion -->
 
-```python colab_type="code" id="l2h0D-NE1qKv" colab={}
+```python colab_type="code" id="l2h0D-NE1qKv" colab={} tags=[]
 def get_score(normalized_adata, gene_set):
     """Returns the score per cell given a dictionary of + and - genes
 
@@ -163,7 +163,7 @@ def get_score(normalized_adata, gene_set):
     return score
 ```
 
-```python colab_type="code" id="l2h0D-NE1qKv" colab={}
+```python colab_type="code" id="l2h0D-NE1qKv" colab={} tags=[]
 def get_cell_mask(normalized_adata, gene_set):
     """Calculates the score per cell for a list of genes, then returns a mask for
     the cells with the highest 50 scores. 
@@ -193,7 +193,7 @@ def get_cell_mask(normalized_adata, gene_set):
 We run those function to identify highly confident cells, that we aim at using as seed labels
 <!-- #endregion -->
 
-```python colab_type="code" id="8_24bN2A1rwi" colab={}
+```python colab_type="code" id="8_24bN2A1rwi" colab={} tags=[]
 #hand curated list of genes for identifying ground truth
 
 cd4_reg_geneset = {"positive":["TNFRSF18", "CTLA4", "FOXP3", "IL2RA"],
@@ -210,14 +210,14 @@ cd4_mem_geneset = {"positive":["S100A4"],
 
 ```
 
-```python colab_type="code" id="BG21NDeZDBvO" colab={}
+```python colab_type="code" id="BG21NDeZDBvO" colab={} tags=[]
 cd4_reg_mask = get_cell_mask(normalized, cd4_reg_geneset,) 
 cd8_naive_mask = get_cell_mask(normalized, cd8_naive_geneset,) 
 cd4_naive_mask = get_cell_mask(normalized, cd4_naive_geneset,)
 cd4_mem_mask = get_cell_mask(normalized, cd4_mem_geneset,)
 ```
 
-```python colab_type="code" id="GMTYYLpaTVRK" colab={}
+```python colab_type="code" id="GMTYYLpaTVRK" colab={} tags=[]
 seed_labels = np.array(cd4_mem_mask.shape[0] * ["Unknown"])
 seed_labels[cd8_naive_mask] = "CD8 Naive T cell"
 seed_labels[cd4_naive_mask] = "CD4 Naive T cell"
@@ -231,7 +231,7 @@ adata.obs["seed_labels"] = seed_labels
 We can observe what seed label information we have now
 <!-- #endregion -->
 
-```python colab_type="code" id="0dya8rCRVcV6" colab={"base_uri": "https://localhost:8080/", "height": 121} outputId="4e07f980-b35a-40ab-efff-ec449cf85a4b"
+```python colab_type="code" id="0dya8rCRVcV6" colab={"base_uri": "https://localhost:8080/", "height": 121} outputId="4e07f980-b35a-40ab-efff-ec449cf85a4b" tags=[]
 adata.obs.seed_labels.value_counts()
 ```
 
@@ -247,7 +247,7 @@ As expected, we use 50 cells for each cell type!
 As in the harmonization notebook, we need to register the AnnData object for use in scANVI. Namely, we can ignore the batch parameter because those cells don't have much batch effect to begin with. However, we will give the seed labels for scANVI to use.
 <!-- #endregion -->
 
-```python colab_type="code" id="EJ39viHUVK9q" colab={"base_uri": "https://localhost:8080/", "height": 156} outputId="c3aea987-fd17-4a08-847f-5a803e2660d4"
+```python colab_type="code" id="EJ39viHUVK9q" colab={"base_uri": "https://localhost:8080/", "height": 156} outputId="c3aea987-fd17-4a08-847f-5a803e2660d4" tags=[]
 scvi.data.setup_anndata(adata, batch_key=None, labels_key="seed_labels")
 ```
 
@@ -264,7 +264,7 @@ lvae.train()
 ```
 
 <!-- #region {"colab_type": "text", "id": "6JlPoPJsWKnJ"} -->
-Now we can predict the missing cell types, and get the latent space
+Now we can predict the missing cell types and represent them in the latent space.
 
 <!-- #endregion -->
 
@@ -287,5 +287,5 @@ sc.pl.umap(adata, color=['labels', 'C_scANVI'])
 ```
 
 <!-- #region {"colab_type": "text", "id": "bQlC6BcbWUah"} -->
-From this, we can see that it is relatively easy for scANVI to separate the CD4 T cells from the CD8 T cells (in latent space, as well as for the classifier). The regulatory CD4 T cells are sometimes missclassified into CD4 Naive, but this stays a minor phenomenon. Also, we expect that better results may be obtained by careful hyperparameter selection for the classifier. Learn about all of this in our [documentation](https://scvi.readthedocs.io/en/stable/). 
+From this, we can see that it is relatively easy for scANVI to separate the CD4 T cells from the CD8 T cells (in latent space and for classification). The regulatory CD4 T cells are sometimes misclassified as CD4 Naive, but this is rare. Better results may be obtained by careful hyperparameter selection for the classifier. This is in the [scvi documentation](https://scvi.readthedocs.io/en/stable/). 
 <!-- #endregion -->
