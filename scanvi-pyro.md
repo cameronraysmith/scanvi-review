@@ -85,13 +85,19 @@ from pyro.infer import SVI, TraceEnum_ELBO, config_enumerate
 from pyro.optim import MultiStepLR
 ```
 
+## Plotting
+
+```python tags=[]
+%run -i plotting.py
+```
+
 <!-- #region {"tags": []} -->
 ## Helper functions
 <!-- #endregion -->
 
 `make_fc` is a helper for making fully-connected neural networks.
 
-```python
+```python tags=[]
 def make_fc(dims):
     layers = []
     for in_dim, out_dim in zip(dims, dims[1:]):
@@ -110,7 +116,7 @@ def split_in_half(t):
 
 `broadcast_inputs` is a helper for broadcasting inputs to neural networks.
 
-```python
+```python tags=[]
 def broadcast_inputs(input_args):
     shape = broadcast_shape(*[s.shape[:-1] for s in input_args]) + (-1,)
     input_args = [s.expand(shape) for s in input_args]
@@ -119,7 +125,7 @@ def broadcast_inputs(input_args):
 
 `Z2Decoder` is used in parameterizing $p(z_2 | z_1, y)$
 
-```python
+```python tags=[]
 class Z2Decoder(nn.Module):
     def __init__(self, z1_dim, y_dim, z2_dim, hidden_dims):
         super().__init__()
@@ -142,7 +148,7 @@ class Z2Decoder(nn.Module):
 
 `XDecoder` is used in parameterizing $p(x | z_2)$
 
-```python
+```python tags=[]
 class XDecoder(nn.Module):
     def __init__(self, num_genes, z2_dim, hidden_dims):
         super().__init__()
@@ -157,7 +163,7 @@ class XDecoder(nn.Module):
 
 `Z2LEncoder` is used in parameterizing $q(z_2 | x)$ and $q(l | x)$
 
-```python
+```python tags=[]
 class Z2LEncoder(nn.Module):
     def __init__(self, num_genes, z2_dim, hidden_dims):
         super().__init__()
@@ -177,7 +183,7 @@ class Z2LEncoder(nn.Module):
 
 `Z1Encoder` is used in parameterizing $q(z_1 | z_2, y)$
 
-```python
+```python tags=[]
 class Z1Encoder(nn.Module):
     def __init__(self, num_labels, z1_dim, z2_dim, hidden_dims):
         super().__init__()
@@ -200,7 +206,7 @@ class Z1Encoder(nn.Module):
 
 `Classifier` is used in parameterizing $q(y | z_2)$
 
-```python
+```python tags=[]
 # Used in parameterizing q(y | z2)
 class Classifier(nn.Module):
     def __init__(self, z2_dim, hidden_dims, num_labels):
@@ -217,9 +223,9 @@ class Classifier(nn.Module):
 # Toy version of scANVI
 <!-- #endregion -->
 
-The `SCANVI` class encompasses the scANVI model and guide as a PyTorch nn.Module.
+The `SCANVI` class encompasses the scANVI pyro model and guide as a PyTorch nn.Module.
 
-```python
+```python tags=[]
 class SCANVI(nn.Module):
     def __init__(self, num_genes, num_labels, l_loc, l_scale, latent_dim=10, alpha=0.01, scale_factor=1.0):
         assert isinstance(num_genes, int)
@@ -326,6 +332,157 @@ class SCANVI(nn.Module):
 # Example execution 
 <!-- #endregion -->
 
+## Setup
+
+```python tags=[]
+assert pyro.__version__.startswith('1.6.0')
+    # Parse command line arguments
+    
+parser = argparse.ArgumentParser(description="single-cell ANnotation using Variational Inference")
+parser.add_argument('-s', '--seed', default=0, type=int, help='rng seed')
+parser.add_argument('-n', '--num-epochs', default=60, type=int, help='number of training epochs')
+parser.add_argument('-d', '--dataset', default='pbmc', type=str,
+                        help='which dataset to use', choices=['pbmc', 'mock'])
+parser.add_argument('-bs', '--batch-size', default=100, type=int, help='mini-batch size')
+parser.add_argument('-lr', '--learning-rate', default=0.005, type=float, help='learning rate')
+parser.add_argument('--cuda', action='store_true', default=True, help='whether to use cuda')
+parser.add_argument('--plot', action='store_true', default=True, help='whether to make a plot')
+args = parser.parse_args(args=[])
+```
+
+```python tags=[]
+args
+```
+
+```python tags=[]
+# Fix random number seed
+pyro.util.set_rng_seed(args.seed)
+```
+
+## Load data
+
+```python tags=[]
+# Load and pre-process data
+dataloader, num_genes, l_mean, l_scale, anndata = get_data(dataset=args.dataset, batch_size=args.batch_size,
+                                                               cuda=args.cuda)
+```
+
+## Define and train model
+
+```python tags=[]
+    # Instantiate instance of model/guide and various neural networks
+    scanvi = SCANVI(num_genes=num_genes, num_labels=4, l_loc=l_mean, l_scale=l_scale,
+                    scale_factor=1.0 / (args.batch_size * num_genes))
+```
+
+```python tags=[]
+    if args.cuda:
+        scanvi.cuda()
+```
+
+```python tags=[]
+    # Setup an optimizer (Adam) and learning rate scheduler.
+    # By default we start with a moderately high learning rate (0.005)
+    # and reduce by a factor of 5 after 20 epochs.
+    scheduler = MultiStepLR({'optimizer': Adam,
+                             'optim_args': {'lr': args.learning_rate},
+                             'milestones': [20],
+                             'gamma': 0.2})
+```
+
+```python tags=[]
+    # Tell Pyro to enumerate out y when y is unobserved
+    guide = config_enumerate(scanvi.guide, "parallel", expand=True)
+```
+
+```python tags=[]
+    # Setup a variational objective for gradient-based learning.
+    # Note we use TraceEnum_ELBO in order to leverage Pyro's machinery
+    # for automatic enumeration of the discrete latent variable y.
+    elbo = TraceEnum_ELBO(strict_enumeration_warning=False)
+    svi = SVI(scanvi.model, guide, scheduler, elbo)
+```
+
+```python tags=[]
+    # Training loop
+    for epoch in range(args.num_epochs):
+        losses = []
+
+        for x, y in dataloader:
+            if y is not None:
+                y = y.type_as(x)
+            loss = svi.step(x, y)
+            losses.append(loss)
+
+        # Tell the scheduler we've done one epoch.
+        scheduler.step()
+
+        print("[Epoch %04d]  Loss: %.5f" % (epoch, np.mean(losses)))
+```
+
+```python tags=[]
+# Put neural networks in eval mode (needed for batchnorm)
+scanvi.eval()
+```
+
+```python tags=[]
+    # Now that we're done training we'll inspect the latent representations we've learned
+    if args.plot and args.dataset == 'pbmc':
+        import scanpy as sc
+
+        # Compute latent representation (z2_loc) for each cell in the dataset
+        latent_rep = scanvi.z2l_encoder(dataloader.data_x)[0]
+
+        # Compute inferred cell type probabilities for each cell
+        y_logits = scanvi.classifier(latent_rep)
+        y_probs = softmax(y_logits, dim=-1).data.cpu().numpy()
+
+        # Use scanpy to compute 2-dimensional UMAP coordinates using our
+        # learned 10-dimensional latent representation z2
+        anndata.obsm["X_scANVI"] = latent_rep.data.cpu().numpy()
+        sc.pp.neighbors(anndata, use_rep="X_scANVI")
+        sc.tl.umap(anndata)
+        umap1, umap2 = anndata.obsm['X_umap'][:, 0], anndata.obsm['X_umap'][:, 1]
+
+        # Construct plots; all plots are scatterplots depicting the two-dimensional UMAP embedding
+        # and only differ in how points are colored
+
+        # The topmost plot depicts the 200 hand-curated seed labels in our dataset
+        fig, axes = plt.subplots(3, 2)
+        seed_marker_sizes = anndata.obs['seed_marker_sizes']
+        axes[0, 0].scatter(umap1, umap2, s=seed_marker_sizes, c=anndata.obs['seed_colors'], marker='.', alpha=0.7)
+        axes[0, 0].set_title('Hand-Curated Seed Labels')
+        patch1 = Patch(color='lightcoral', label='CD8-Naive')
+        patch2 = Patch(color='limegreen', label='CD4-Naive')
+        patch3 = Patch(color='deepskyblue', label='CD4-Memory')
+        patch4 = Patch(color='mediumorchid', label='CD4-Regulatory')
+        axes[0, 1].legend(loc='center left', handles=[patch1, patch2, patch3, patch4])
+        axes[0, 1].get_xaxis().set_visible(False)
+        axes[0, 1].get_yaxis().set_visible(False)
+        axes[0, 1].set_frame_on(False)
+
+        # The remaining plots depict the inferred cell type probability for each of the four cell types
+        s10 = axes[1, 0].scatter(umap1, umap2, s=1, c=y_probs[:, 0], marker='.', alpha=0.7)
+        axes[1, 0].set_title('Inferred CD8-Naive probability')
+        fig.colorbar(s10, ax=axes[1, 0])
+        s11 = axes[1, 1].scatter(umap1, umap2, s=1, c=y_probs[:, 1], marker='.', alpha=0.7)
+        axes[1, 1].set_title('Inferred CD4-Naive probability')
+        fig.colorbar(s11, ax=axes[1, 1])
+        s20 = axes[2, 0].scatter(umap1, umap2, s=1, c=y_probs[:, 2], marker='.', alpha=0.7)
+        axes[2, 0].set_title('Inferred CD4-Memory probability')
+        fig.colorbar(s20, ax=axes[2, 0])
+        s21 = axes[2, 1].scatter(umap1, umap2, s=1, c=y_probs[:, 3], marker='.', alpha=0.7)
+        axes[2, 1].set_title('Inferred CD4-Regulatory probability')
+        fig.colorbar(s21, ax=axes[2, 1])
+
+        fig.tight_layout()
+        plt.savefig('scanvi.pdf')
+```
+
+<!-- #region {"tags": []} -->
+# Setup for running from a unix shell
+<!-- #endregion -->
+
 ```python tags=[]
 def main(args):
     # Fix random number seed
@@ -430,38 +587,6 @@ def main(args):
         fig.tight_layout()
         plt.savefig('scanvi.pdf')
 ```
-
-```python
-import argparse
-```
-
-```python tags=[]
-assert pyro.__version__.startswith('1.6.0')
-    # Parse command line arguments
-    
-parser = argparse.ArgumentParser(description="single-cell ANnotation using Variational Inference")
-parser.add_argument('-s', '--seed', default=0, type=int, help='rng seed')
-parser.add_argument('-n', '--num-epochs', default=60, type=int, help='number of training epochs')
-parser.add_argument('-d', '--dataset', default='pbmc', type=str,
-                        help='which dataset to use', choices=['pbmc', 'mock'])
-parser.add_argument('-bs', '--batch-size', default=100, type=int, help='mini-batch size')
-parser.add_argument('-lr', '--learning-rate', default=0.005, type=float, help='learning rate')
-parser.add_argument('--cuda', action='store_true', default=False, help='whether to use cuda')
-parser.add_argument('--plot', action='store_true', default=False, help='whether to make a plot')
-args = parser.parse_args(args=[])
-```
-
-```python
-args
-```
-
-```python tags=[]
-main(args)
-```
-
-<!-- #region {"tags": []} -->
-# Command line argument parsing
-<!-- #endregion -->
 
 <!-- #region -->
 Convert the following from markdown back into executable python if you would like to run this example from the command line.
